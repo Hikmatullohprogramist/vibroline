@@ -1,0 +1,11 @@
+{
+  "name": "vibroline",
+  "version": "1.0.0",
+  "description": "Vibroline Flutter app with Tailwind CSS",
+  "scripts": {
+    "build:css": "tailwindcss -i ./lib/styles/tailwind.css -o ./lib/styles/output.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}
