@@ -11,9 +11,11 @@
 ### 🎯 MVP Features
 
 - **Wi-Fi Connectivity**: Device works in AP (Access Point) or STA (Client) mode
-- **HTTP Communication**: Device and app exchange POST/GET requests
-- **Sensor Detection**: Doorbell, phone, intercom, acoustic sensor (baby monitor)
-- **Push Notifications**: App receives requests and displays notifications with source information
+- **WebSocket Communication**: Real-time communication with ESP8266 device
+- **Automatic Mode Detection**: Determines connection mode via API
+- **Sensor Detection**: Doorbell, phone, intercom, baby monitor, smoke, gas sensors
+- **Push Notifications**: Real-time alerts with source information
+- **Wi-Fi Configuration**: Set WiFi credentials via app
 - **Russian Language Interface**: All UI elements in Russian
 
 ## 🏗️ System Architecture
