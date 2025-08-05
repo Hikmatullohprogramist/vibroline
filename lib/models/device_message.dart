@@ -5,25 +5,19 @@ class DeviceMessage {
   final Map<String, int>? alarm;
   final Map<String, int>? batteryLow;
 
-  DeviceMessage({
-    this.mac,
-    this.rssi,
-    this.gpio,
-    this.alarm,
-    this.batteryLow,
-  });
+  DeviceMessage({this.mac, this.rssi, this.gpio, this.alarm, this.batteryLow});
 
   factory DeviceMessage.fromJson(Map<String, dynamic> json) {
     return DeviceMessage(
       mac: json['mac'] as String?,
       rssi: json['rssi'] as int?,
-      gpio: json['gpio'] != null 
+      gpio: json['gpio'] != null
           ? Map<String, int>.from(json['gpio'] as Map)
           : null,
-      alarm: json['alarm'] != null 
+      alarm: json['alarm'] != null
           ? Map<String, int>.from(json['alarm'] as Map)
           : null,
-      batteryLow: json['batterylow'] != null 
+      batteryLow: json['batterylow'] != null
           ? Map<String, int>.from(json['batterylow'] as Map)
           : null,
     );
@@ -31,10 +25,10 @@ class DeviceMessage {
 
   // Check if message contains alarm
   bool get hasAlarm => alarm != null && alarm!.isNotEmpty;
-  
+
   // Check if message contains battery low warning
   bool get hasBatteryLow => batteryLow != null && batteryLow!.isNotEmpty;
-  
+
   // Check if message contains GPIO changes
   bool get hasGpioChanges => gpio != null && gpio!.isNotEmpty;
 
@@ -50,7 +44,7 @@ class DeviceMessage {
     return batteryLow!.keys.where((key) => batteryLow![key] == 0).toList();
   }
 
-  // Convert alarm type to Russian text
+  // Convert alarm type to Russian text according to technical specification
   static String alarmTypeToText(String type) {
     switch (type) {
       case 'doorbell':
@@ -66,7 +60,7 @@ class DeviceMessage {
       case 'smoke':
         return 'Датчик дыма';
       case 'gas':
-        return 'Датчик утечки газа';
+        return 'Датчик утечки бытового газа';
       default:
         return 'Неизвестно';
     }
@@ -76,4 +70,33 @@ class DeviceMessage {
   static String batteryLowTypeToText(String type) {
     return 'Батарея разряжена: ${alarmTypeToText(type)}';
   }
-} 
+
+  // Get GPIO status text
+  String get gpioStatusText {
+    if (gpio == null || gpio!.isEmpty) return 'GPIO: Нет данных';
+
+    final statusList = <String>[];
+    gpio!.forEach((key, value) {
+      statusList.add('$key: ${value == 1 ? "ВКЛ" : "ВЫКЛ"}');
+    });
+
+    return 'GPIO: ${statusList.join(", ")}';
+  }
+
+  // Get message summary for display
+  String get messageSummary {
+    if (hasAlarm) {
+      return 'Тревога: ${alarmTypes.map(alarmTypeToText).join(", ")}';
+    }
+    if (hasBatteryLow) {
+      return 'Батарея: ${batteryLowTypes.map(batteryLowTypeToText).join(", ")}';
+    }
+    if (hasGpioChanges) {
+      return gpioStatusText;
+    }
+    if (mac != null) {
+      return 'Устройство: $mac';
+    }
+    return 'Сообщение от устройства';
+  }
+}

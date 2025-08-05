@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'connection_service.dart';
 import 'notification_service.dart';
@@ -14,9 +15,11 @@ class AutoConnectionService {
   bool _isConnecting = false;
   Timer? _reconnectTimer;
   Timer? _heartbeatTimer;
+  Timer? _statusCheckTimer;
 
   String? _currentIp;
   ConnectionStatus? _connectionStatus;
+  ConnectionMode _preferredMode = ConnectionMode.ap;
 
   // Callbacks
   Function(DeviceMessage)? _onMessageCallback;
@@ -28,6 +31,7 @@ class AutoConnectionService {
   bool get isConnected => _isConnected;
   bool get isConnecting => _isConnecting;
   ConnectionStatus? get connectionStatus => _connectionStatus;
+  ConnectionMode get preferredMode => _preferredMode;
 
   // Initialize auto connection
   Future<void> initialize() async {
@@ -35,15 +39,59 @@ class AutoConnectionService {
     _startAutoConnection();
   }
 
-  // Start automatic connection process
+  // Set preferred connection mode
+  void setPreferredMode(ConnectionMode mode) {
+    _preferredMode = mode;
+    debugPrint('Preferred mode set to: ${mode.name}');
+  }
+
+  // Start automatic connection process with enhanced logic
   Future<void> _startAutoConnection() async {
     if (_isConnecting) return;
 
     _isConnecting = true;
+    debugPrint(
+      'Starting auto connection with preferred mode: ${_preferredMode.name}',
+    );
 
     try {
-      // Determine connection mode
+      // Get available modes
+      final availableModes = await _connectionService.getAvailableModes();
+      debugPrint(
+        'Available modes: ${availableModes.map((m) => m.name).join(', ')}',
+      );
+
+      // Determine connection mode based on preference and availability
+      ConnectionMode targetMode;
+      if (_preferredMode == ConnectionMode.router &&
+          availableModes.contains(ConnectionMode.router)) {
+        targetMode = ConnectionMode.router;
+        debugPrint('Using STA mode (router)');
+      } else {
+        targetMode = ConnectionMode.ap;
+        debugPrint('Using AP mode (access point)');
+      }
+
+      // Get connection status for the target mode
       _connectionStatus = await _connectionService.getConnectionStatus();
+
+      // If we want STA but got AP, try to force STA mode
+      if (targetMode == ConnectionMode.router &&
+          _connectionStatus!.isConnectedViaAP) {
+        debugPrint('Forcing STA mode detection...');
+        // Try to get device info again
+        final deviceInfo = await _connectionService.getDeviceInfo();
+        if (deviceInfo != null && deviceInfo.containsKey('local_ip')) {
+          _connectionStatus = ConnectionStatus(
+            mode: ConnectionMode.router,
+            localIp: deviceInfo['local_ip'] as String,
+            globalIp: deviceInfo['global_ip'] as String?,
+            mac: deviceInfo['mac'] as String?,
+            isReachable: true,
+          );
+        }
+      }
+
       _currentIp = _connectionStatus!.localIp;
 
       // Notify status change
@@ -51,13 +99,16 @@ class AutoConnectionService {
 
       // Connect to WebSocket
       await _connectToWebSocket();
+
+      // Start periodic status check
+      _startStatusCheck();
     } catch (e) {
       _handleError('Ошибка определения режима подключения: $e');
       _scheduleReconnect();
     }
   }
 
-  // Connect to WebSocket
+  // Connect to WebSocket with enhanced error handling
   Future<void> _connectToWebSocket() async {
     if (_currentIp == null) {
       _handleError('IP адрес не определен');
@@ -66,12 +117,20 @@ class AutoConnectionService {
 
     try {
       final uri = Uri.parse('ws://$_currentIp/ws');
+      debugPrint('Attempting WebSocket connection to: $uri');
+
       _channel = WebSocketChannel.connect(uri);
 
       _channel!.stream.listen(
         (message) => _handleMessage(message),
-        onError: (error) => _handleError('WebSocket ошибка: $error'),
-        onDone: () => _handleDisconnection(),
+        onError: (error) {
+          debugPrint('WebSocket error: $error');
+          _handleError('WebSocket ошибка: $error');
+        },
+        onDone: () {
+          debugPrint('WebSocket connection closed');
+          _handleDisconnection();
+        },
       );
 
       _isConnected = true;
@@ -81,11 +140,67 @@ class AutoConnectionService {
       // Start heartbeat
       _startHeartbeat();
 
-      print('WebSocket подключен к $_currentIp');
+      debugPrint('WebSocket успешно подключен к $_currentIp');
     } catch (e) {
+      debugPrint('WebSocket connection failed: $e');
       _handleError('Ошибка подключения к WebSocket: $e');
       _scheduleReconnect();
     }
+  }
+
+  // Start periodic status check
+  void _startStatusCheck() {
+    _stopStatusCheck();
+    _statusCheckTimer = Timer.periodic(const Duration(seconds: 30), (
+      timer,
+    ) async {
+      if (!_isConnected) return;
+
+      try {
+        final newStatus = await _connectionService.getConnectionStatus();
+        bool shouldReconnect = false;
+
+        // Check if IP changed
+        if (newStatus.localIp != _currentIp) {
+          debugPrint(
+            'IP address changed from $_currentIp to ${newStatus.localIp}',
+          );
+          _currentIp = newStatus.localIp;
+          shouldReconnect = true;
+        }
+
+        // Check if WiFi info changed
+        if (_connectionStatus?.wifiInfo?.ssid != newStatus.wifiInfo?.ssid) {
+          debugPrint(
+            'WiFi network changed: ${_connectionStatus?.wifiInfo?.ssid} -> ${newStatus.wifiInfo?.ssid}',
+          );
+        }
+
+        _connectionStatus = newStatus;
+        _onConnectionStatusChanged?.call(newStatus);
+
+        // Reconnect if IP changed
+        if (shouldReconnect) {
+          await _reconnectWithNewIp();
+        }
+      } catch (e) {
+        debugPrint('Status check error: $e');
+      }
+    });
+  }
+
+  // Stop status check
+  void _stopStatusCheck() {
+    _statusCheckTimer?.cancel();
+    _statusCheckTimer = null;
+  }
+
+  // Reconnect with new IP
+  Future<void> _reconnectWithNewIp() async {
+    debugPrint('Reconnecting with new IP: $_currentIp');
+    disconnect();
+    await Future.delayed(const Duration(seconds: 2));
+    _startAutoConnection();
   }
 
   // Handle incoming messages
@@ -118,9 +233,9 @@ class AutoConnectionService {
     }
   }
 
-  // Handle errors
+  // Handle errors with enhanced logging
   void _handleError(String error) {
-    print('AutoConnection Error: $error');
+    debugPrint('AutoConnection Error: $error');
     _isConnected = false;
     _isConnecting = false;
     _onErrorCallback?.call(error);
@@ -128,18 +243,18 @@ class AutoConnectionService {
 
   // Handle disconnection
   void _handleDisconnection() {
-    print('WebSocket отключен');
+    debugPrint('WebSocket отключен');
     _isConnected = false;
     _stopHeartbeat();
     _onDisconnectedCallback?.call();
     _scheduleReconnect();
   }
 
-  // Schedule reconnection
+  // Schedule reconnection with exponential backoff
   void _scheduleReconnect() {
     if (_reconnectTimer != null) return;
 
-    print('Планирование переподключения через 5 секунд...');
+    debugPrint('Планирование переподключения через 5 секунд...');
     _reconnectTimer = Timer(const Duration(seconds: 5), () {
       _reconnectTimer = null;
       if (!_isConnected && !_isConnecting) {
@@ -156,7 +271,7 @@ class AutoConnectionService {
         try {
           _channel!.sink.add(json.encode({'type': 'ping'}));
         } catch (e) {
-          print('Heartbeat error: $e');
+          debugPrint('Heartbeat error: $e');
           _handleDisconnection();
         }
       }
@@ -182,9 +297,47 @@ class AutoConnectionService {
     }
   }
 
-  // Set WiFi credentials
+  // Set WiFi credentials for STA mode
   void setWiFi(String ssid, String password) {
+    debugPrint('Setting WiFi credentials for STA mode: $ssid');
     sendCommand({'cmd': 'setwifi', 'ssid': ssid, 'pass': password});
+  }
+
+  // Switch to AP mode
+  void switchToAPMode() {
+    debugPrint('Switching to AP mode');
+    sendCommand({'cmd': 'switch_to_ap'});
+    setPreferredMode(ConnectionMode.ap);
+
+    // Reconnect after mode switch
+    Future.delayed(const Duration(seconds: 2), () {
+      reconnect();
+    });
+  }
+
+  // Switch to STA mode with WiFi configuration
+  void switchToSTAMode() {
+    debugPrint('Switching to STA mode');
+    sendCommand({'cmd': 'switch_to_sta'});
+    setPreferredMode(ConnectionMode.router);
+
+    // Reconnect after mode switch with delay
+    Future.delayed(const Duration(seconds: 5), () {
+      reconnect();
+    });
+  }
+
+  // Switch to STA mode with WiFi credentials
+  void switchToSTAModeWithWiFi(String ssid, String password) {
+    debugPrint('Switching to STA mode with WiFi: $ssid');
+
+    // First set WiFi credentials
+    setWiFi(ssid, password);
+
+    // Then switch to STA mode
+    Future.delayed(const Duration(seconds: 1), () {
+      switchToSTAMode();
+    });
   }
 
   // Manual reconnect
@@ -197,9 +350,15 @@ class AutoConnectionService {
   // Disconnect
   void disconnect() {
     _stopHeartbeat();
+    _stopStatusCheck();
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    _channel?.sink.close();
+
+    if (_channel != null) {
+      _channel!.sink.close();
+      _channel = null;
+    }
+
     _isConnected = false;
     _isConnecting = false;
   }
@@ -223,10 +382,5 @@ class AutoConnectionService {
 
   void setOnConnectionStatusChanged(Function(ConnectionStatus) callback) {
     _onConnectionStatusChanged = callback;
-  }
-
-  // Dispose
-  void dispose() {
-    disconnect();
   }
 }

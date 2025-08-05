@@ -16,6 +16,8 @@ class _AutoHomeScreenState extends State<AutoHomeScreen> {
   List<DeviceMessage> _messageHistory = [];
   String _statusMessage = 'Инициализация...';
   bool _isInitialized = false;
+  String _wifiSSID = '';
+  String _wifiPassword = '';
 
   @override
   void initState() {
@@ -84,7 +86,7 @@ class _AutoHomeScreenState extends State<AutoHomeScreen> {
     });
   }
 
-  void _setWiFiCredentials() {
+  void _showWiFiDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -97,68 +99,197 @@ class _AutoHomeScreenState extends State<AutoHomeScreen> {
                 labelText: 'SSID',
                 hintText: 'Имя Wi-Fi сети',
               ),
+              onChanged: (value) => _wifiSSID = value,
               onSubmitted: (ssid) {
-                Navigator.pop(context);
-                _showPasswordDialog(ssid);
+                _wifiSSID = ssid;
+                _showPasswordDialog();
+              },
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Пароль',
+                hintText: 'Пароль Wi-Fi сети',
+              ),
+              obscureText: true,
+              onChanged: (value) => _wifiPassword = value,
+              onSubmitted: (password) {
+                _wifiPassword = password;
+                _setWiFiCredentials();
               },
             ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.of(context).pop(),
             child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: _setWiFiCredentials,
+            child: const Text('Сохранить'),
           ),
         ],
       ),
     );
   }
 
-  void _showPasswordDialog(String ssid) {
-    final passwordController = TextEditingController();
-
+  void _showPasswordDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Пароль Wi-Fi'),
         content: TextField(
-          controller: passwordController,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Пароль',
-            hintText: 'Пароль Wi-Fi сети',
+            hintText: 'Введите пароль для $_wifiSSID',
           ),
           obscureText: true,
+          onChanged: (value) => _wifiPassword = value,
+          onSubmitted: (password) {
+            _wifiPassword = password;
+            Navigator.of(context).pop();
+            _setWiFiCredentials();
+          },
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.of(context).pop(),
             child: const Text('Отмена'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () {
-              Navigator.pop(context);
-              _autoConnectionService.setWiFi(ssid, passwordController.text);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Wi-Fi настройки отправлены')),
-              );
+              Navigator.of(context).pop();
+              _setWiFiCredentials();
             },
-            child: const Text('Отправить'),
+            child: const Text('Сохранить'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _setWiFiCredentials() {
+    if (_wifiSSID.isNotEmpty && _wifiPassword.isNotEmpty) {
+      _autoConnectionService.setWiFi(_wifiSSID, _wifiPassword);
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Wi-Fi настройки отправлены: $_wifiSSID'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Пожалуйста, введите SSID и пароль'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _switchToAPMode() {
+    _autoConnectionService.switchToAPMode();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Переключение в режим точки доступа...'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  void _switchToSTAMode() {
+    _showWiFiConfigForSTAMode();
+  }
+
+  void _showWiFiConfigForSTAMode() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Настройка Wi-Fi для STA режима'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Для переключения в режим роутера необходимо указать параметры Wi-Fi сети.',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'SSID',
+                hintText: 'Имя Wi-Fi сети',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) => _wifiSSID = value,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Пароль',
+                hintText: 'Пароль Wi-Fi сети',
+                border: OutlineInputBorder(),
+              ),
+              obscureText: true,
+              onChanged: (value) => _wifiPassword = value,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (_wifiSSID.isNotEmpty && _wifiPassword.isNotEmpty) {
+                Navigator.of(context).pop();
+                _performSTAModeSwitch();
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Пожалуйста, введите SSID и пароль'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('Переключиться'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _performSTAModeSwitch() {
+    // Use the new method that handles WiFi configuration and mode switching
+    _autoConnectionService.switchToSTAModeWithWiFi(_wifiSSID, _wifiPassword);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'WiFi настройки отправлены: $_wifiSSID\nПереключение в режим роутера...',
+        ),
+        backgroundColor: Colors.orange,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
 
   void _reconnect() {
     _autoConnectionService.reconnect();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Переподключение...')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Переподключение...'),
+        backgroundColor: Colors.blue,
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _autoConnectionService.dispose();
     super.dispose();
   }
 
@@ -167,24 +298,66 @@ class _AutoHomeScreenState extends State<AutoHomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Vibroline'),
-        centerTitle: true,
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.wifi),
-            onPressed: _setWiFiCredentials,
-            tooltip: 'Настройка Wi-Fi',
-          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _reconnect,
             tooltip: 'Переподключиться',
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              switch (value) {
+                case 'wifi':
+                  _showWiFiDialog();
+                  break;
+                case 'ap_mode':
+                  _switchToAPMode();
+                  break;
+                case 'sta_mode':
+                  _switchToSTAMode();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'wifi',
+                child: Row(
+                  children: [
+                    Icon(Icons.wifi),
+                    SizedBox(width: 8),
+                    Text('Настройка Wi-Fi'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'ap_mode',
+                child: Row(
+                  children: [
+                    Icon(Icons.wifi_tethering),
+                    SizedBox(width: 8),
+                    Text('Режим точки доступа'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'sta_mode',
+                child: Row(
+                  children: [
+                    Icon(Icons.router),
+                    SizedBox(width: 8),
+                    Text('Режим роутера (STA)'),
+                  ],
+                ),
+              ),
+            ],
+            child: const Icon(Icons.more_vert),
           ),
         ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Connection status card
             Card(
@@ -218,13 +391,60 @@ class _AutoHomeScreenState extends State<AutoHomeScreen> {
                     ),
                     if (_autoConnectionService.connectionStatus != null) ...[
                       const SizedBox(height: 8),
-                      Text(
-                        'Режим: ${_autoConnectionService.connectionStatus!.isConnectedViaRouter ? "Роутер" : "Точка доступа"}',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey,
-                        ),
+                      Row(
+                        children: [
+                          Icon(
+                            _autoConnectionService
+                                    .connectionStatus!
+                                    .isConnectedViaRouter
+                                ? Icons.router
+                                : Icons.wifi_tethering,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _autoConnectionService
+                                .connectionStatus!
+                                .statusDescription,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
                       ),
+                      // WiFi information
+                      if (_autoConnectionService.connectionStatus!.wifiInfo !=
+                          null) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              _autoConnectionService
+                                      .connectionStatus!
+                                      .isConnectedViaRouter
+                                  ? Icons.wifi
+                                  : Icons.wifi_tethering,
+                              size: 16,
+                              color: Colors.blue,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                _autoConnectionService
+                                    .connectionStatus!
+                                    .wifiDisplayInfo,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.blue,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       if (_autoConnectionService.connectionStatus!.mac != null)
                         Text(
                           'MAC: ${_autoConnectionService.connectionStatus!.mac}',
@@ -233,7 +453,38 @@ class _AutoHomeScreenState extends State<AutoHomeScreen> {
                             color: Colors.grey,
                           ),
                         ),
+                      if (_autoConnectionService.connectionStatus!.globalIp !=
+                          null)
+                        Text(
+                          'Внешний IP: ${_autoConnectionService.connectionStatus!.globalIp}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
                     ],
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _autoConnectionService.isConnected
+                                ? null
+                                : _reconnect,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Переподключиться'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _showWiFiDialog,
+                            icon: const Icon(Icons.wifi),
+                            label: const Text('Wi-Fi'),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),

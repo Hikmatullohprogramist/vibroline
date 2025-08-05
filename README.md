@@ -8,20 +8,20 @@
 
 **Vibroline** is a digital wireless system designed for the social rehabilitation of citizens with hearing disabilities. It provides notifications about doorbells, phones, intercoms, baby monitors, and other household signals through a mobile application working with ESP8266 hardware.
 
-### 🎯 MVP Features
+### 🎯 Key Features
 
-- **Wi-Fi Connectivity**: Device works in AP (Access Point) or STA (Client) mode
+- **Dual Mode Operation**: AP (Access Point) and STA (Station) modes
+- **Wi-Fi Connectivity**: Automatic mode detection and connection
 - **WebSocket Communication**: Real-time communication with ESP8266 device
-- **Automatic Mode Detection**: Determines connection mode via API
 - **Sensor Detection**: Doorbell, phone, intercom, baby monitor, smoke, gas sensors
 - **Push Notifications**: Real-time alerts with source information
 - **Wi-Fi Configuration**: Set WiFi credentials via app
-- **Russian Language Interface**: All UI elements in Russian
+- **Russian Language Interface**: All sUI elements in Russian
 
 ## 🏗️ System Architecture
 
 ```
-┌─────────────────┐    HTTP Requests    ┌─────────────────┐
+┌─────────────────┐    HTTP/WebSocket    ┌─────────────────┐
 │   Flutter App   │ ◄─────────────────► │   ESP8266       │
 │   (Android)     │                     │   (Arduino)     │
 └─────────────────┘                     └─────────────────┘
@@ -74,6 +74,7 @@ dependencies:
   flutter_local_notifications: ^19.4.0
   permission_handler: ^12.0.1
   tailwind_cli: ^0.7.7
+  web_socket_channel: ^2.4.0
 ```
 
 ## 📁 Project Structure
@@ -83,81 +84,187 @@ vibroline/
 ├── lib/
 │   ├── main.dart                 # App entry point
 │   ├── core/
-│   │   ├── network_service.dart  # HTTP communication
-│   │   └── notification_service.dart # Push notifications
+│   │   ├── connection_service.dart      # Connection mode detection
+│   │   ├── auto_connection_service.dart # Auto connection management
+│   │   ├── notification_service.dart    # Push notifications
+│   │   └── websocket_service.dart      # WebSocket communication
 │   ├── models/
-│   │   └── event_model.dart      # Event data model
+│   │   └── device_message.dart         # Device message model
 │   ├── screens/
-│   │   ├── home_screen.dart      # Main screen
-│   │   └── settings_screen.dart  # Settings (future)
-│   ├── widgets/
-│   │   ├── event_history_list.dart # Event history widget
-│   │   └── status_panel.dart     # Status indicator
-│   └── styles/
-│       └── tailwind.css          # Tailwind CSS
+│   │   └── auto_home_screen.dart       # Main screen
+│   └── widgets/                        # UI components
 ├── android/                      # Android specific files
 ├── ios/                         # iOS specific files
 ├── test/                        # Test files
 ├── pubspec.yaml                 # Dependencies
-├── tailwind.config.js           # Tailwind config
-└── package.json                 # Node.js dependencies
+└── TECHNICAL_SPECIFICATION.md   # Technical specification
 ```
 
 ## 🔧 Core Components
 
-### Network Service
-Handles HTTP communication with ESP8266 device.
+### Connection Service
+Handles connection mode detection and device information.
 
 ```dart
-class NetworkService {
-  Future<String?> fetchEvent(String ip) async {
-    try {
-      final response = await http.get(Uri.parse('http://$ip/event'));
-      if (response.statusCode == 200 && response.body.isNotEmpty) {
-        return response.body;
-      }
-    } catch (_) {}
-    return null;
-  }
+class ConnectionService {
+  // Determine connection mode (AP vs STA)
+  Future<String?> determineConnectionMode() async
+  
+  // Get device information from API
+  Future<Map<String, dynamic>?> getDeviceInfo() async
+  
+  // Test device connectivity
+  Future<bool> testConnection(String ip) async
 }
 ```
 
-### Notification Service
-Manages push notifications and permissions.
+### Auto Connection Service
+Manages automatic connection and WebSocket communication.
 
 ```dart
-class NotificationService {
-  Future<void> show(String source) async {
-    const android = AndroidNotificationDetails(
-      'vibroline_channel', 'Vibroline',
-      importance: Importance.max, priority: Priority.high,
-    );
-    await notificationsPlugin.show(0, 'Vibroline', 'Сработал: $source',
-        notificationDetails);
-  }
+class AutoConnectionService {
+  // Initialize connection
+  Future<void> initialize() async
+  
+  // Send commands to device
+  void sendCommand(Map<String, dynamic> command)
+  
+  // Set WiFi credentials
+  void setWiFi(String ssid, String password)
+}
+```
+
+### Device Message Model
+Handles device message parsing and formatting.
+
+```dart
+class DeviceMessage {
+  final String? mac;
+  final int? rssi;
+  final Map<String, int>? gpio;
+  final Map<String, int>? alarm;
+  final Map<String, int>? batteryLow;
 }
 ```
 
 ## 🌐 API Documentation
 
-### ESP8266 Endpoints
+### Connection Mode Detection
 
-#### GET /event
-Returns current event status from ESP8266
+#### GET https://www.kbkontur.ru/iot/get.php
+Returns device information for STA mode detection.
 
 **Response Format**:
 ```json
 {
-  "source": "doorbell" | "phone" | "intercom" | "baby" | "unknown"
+  "local_ip": "192.168.31.18",
+  "mac": "44:17:93:10:F9:A3",
+  "global_ip": "78.84.84.235"
 }
 ```
 
-**Event Types**:
+### ESP8266 Endpoints
+
+#### GET /status
+Device availability check.
+
+**Response**:
+```json
+{
+  "status": "ok"
+}
+```
+
+#### GET /wifi
+WiFi information.
+
+**Response**:
+```json
+{
+  "ssid": "WiFiName",
+  "rssi": -65,
+  "ip": "192.168.1.100",
+  "gateway": "192.168.1.1"
+}
+```
+
+#### WebSocket /ws
+Real-time data exchange.
+
+**Connection URLs**:
+- STA mode: `ws://<local_ip>/ws`
+- AP mode: `ws://192.168.4.1/ws`
+
+### WebSocket Message Format
+
+#### Device to App Messages
+
+**Initial connection**:
+```json
+{
+  "mac": "44:17:93:10:F9:A3",
+  "rssi": 0,
+  "gpio": {
+    "GPIO1": 1,
+    "GPIO2": 1
+  }
+}
+```
+
+**GPIO changes**:
+```json
+{
+  "gpio": {
+    "GPIO1": 0
+  }
+}
+```
+
+**Alarm events**:
+```json
+{
+  "alarm": {
+    "doorbell": 1
+  }
+}
+```
+
+**Battery low warnings**:
+```json
+{
+  "batterylow": {
+    "doorbell": 0
+  }
+}
+```
+
+#### App to Device Commands
+
+**WiFi configuration**:
+```json
+{
+  "cmd": "setwifi",
+  "ssid": "WiFiName",
+  "pass": "password"
+}
+```
+
+**Mode switching**:
+```json
+{
+  "cmd": "switch_to_ap"
+}
+```
+
+### Sensor Types
+
 - `doorbell` - Дверной звонок
-- `phone` - Телефон
 - `intercom` - Домофон
-- `baby` - Детский плач
-- `unknown` - Неизвестно
+- `phone` - Телефон
+- `babycry` - Плач ребёнка
+- `test` - Тестирование системы
+- `smoke` - Датчик дыма
+- `gas` - Датчик утечки бытового газа
 
 ## 🎨 UI/UX Features
 
@@ -166,6 +273,12 @@ Returns current event status from ESP8266
 - **Russian Language** - All text in Russian
 - **Accessibility** - Support for hearing-impaired users
 - **Responsive** - Works on different screen sizes
+
+### Main Screen Features
+- **Connection Status** - Shows current mode and IP
+- **WiFi Information** - Network name and signal strength
+- **Message History** - All device events
+- **Control Buttons** - Reconnect, WiFi settings
 
 ### Color Scheme
 ```dart
@@ -232,21 +345,24 @@ flutter build appbundle --release
 ```cpp
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <WebSocketsServer.h>
 
-const char* ssid = "YourWiFiSSID";
-const char* password = "YourWiFiPassword";
+const char* ap_ssid = "VibroLine";
+const char* ap_password = "12345678";
 
 ESP8266WebServer server(80);
+WebSocketsServer webSocket = WebSocketsServer(81);
 
 void setup() {
   // Initialize sensors
-  // Connect to Wi-Fi
-  // Start web server
+  // Setup WiFi modes
+  // Start web server and WebSocket
 }
 
 void loop() {
   // Check sensors
-  // Handle HTTP requests
+  // Handle WebSocket events
+  // Send notifications
 }
 ```
 
@@ -329,7 +445,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **MVP Development** - Core functionality implemented
 - [x] **UI/UX Design** - Material Design 3 interface
 - [x] **Testing Framework** - Unit and widget tests
-- [ ] **ESP8266 Integration** - Hardware implementation
+- [x] **ESP8266 Integration** - Hardware implementation
+- [x] **Dual Mode Support** - AP and STA modes
+- [x] **WiFi Information Display** - Network details
 - [ ] **Production Deployment** - App store release
 - [ ] **Advanced Features** - Phase 2 & 3 features
 
