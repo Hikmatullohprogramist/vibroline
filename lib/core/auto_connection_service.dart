@@ -289,6 +289,8 @@ class AutoConnectionService {
     if (_isConnected && _channel != null) {
       try {
         _channel!.sink.add(json.encode(command));
+
+        print('Command sent: $command');
       } catch (e) {
         _handleError('Ошибка отправки команды: $e');
       }
